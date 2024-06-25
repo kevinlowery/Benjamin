@@ -45,6 +45,9 @@ services:
       - "--workers"
       - "6"
     restart: always
+    depends_on:
+      - redis
+      - db
     volumes:
       - ./backend/:/code/
     ports:
@@ -58,8 +61,8 @@ services:
       - 6379:6379
 
   worker:
-    pull_policy: if_not_present
     image: stangirard/quivr-backend-prebuilt:latest
+    pull_policy: if_not_present
     env_file:
       - .env
     build:
@@ -72,6 +75,7 @@ services:
     restart: always
     depends_on:
       - redis
+      - db
 
   beat:
     image: stangirard/quivr-backend-prebuilt:latest
@@ -88,15 +92,13 @@ services:
     restart: always
     depends_on:
       - redis
+      - db
 
   flower:
     image: stangirard/quivr-backend-prebuilt:latest
     pull_policy: if_not_present
     env_file:
       - .env
-    build:
-      context: backend
-      dockerfile: Dockerfile
     container_name: flower
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -108,6 +110,15 @@ services:
       - beat
     ports:
       - 5555:5555
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: your_username
+      POSTGRES_PASSWORD: your_password
+      POSTGRES_DB: your_database
+    ports:
+      - "5432:5432"
 
 networks:
   quivr-network:

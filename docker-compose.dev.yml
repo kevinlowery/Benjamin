@@ -1,86 +1,107 @@
 version: "3.8"
 
 services:
-  backend-core:
-    image: backend-base:latest
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  frontend:
+    image: quivr-frontend-prebuilt
     pull_policy: never
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_ENV=local
+        - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_CMS_URL=${NEXT_PUBLIC_CMS_URL}
+        - NEXT_PUBLIC_FRONTEND_URL=${NEXT_PUBLIC_FRONTEND_URL}
+        - NEXT_PUBLIC_AUTH_MODES=${NEXT_PUBLIC_AUTH_MODES}
+    container_name: web
+    depends_on:
+      - backend-core
+    restart: always
+    ports:
+      - 3000:3000
+
+  backend-core:
+    image: stangirard/quivr-backend-prebuilt:latest
+    pull_policy: if_not_present
     env_file:
       - .env
     build:
       context: backend
-      dockerfile: Dockerfile.dev
-      cache_from:
-        - backend-base:latest
-      args:
-        - DEV_MODE=true
+      dockerfile: Dockerfile
     container_name: backend-core
-    volumes:
-      - ./backend/:/code/
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:5050/healthz" ]
     command:
       - "uvicorn"
       - "main:app"
-      - "--reload"
       - "--host"
       - "0.0.0.0"
       - "--port"
       - "5050"
-      - "--log-level"
-      - "info"
+      - "--workers"
+      - "6"
     restart: always
-
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - ./backend/:/code/
     ports:
       - 5050:5050
-      - 5678:5678 # debug port
 
   redis:
-    image: redis:latest
+    image: redis:latest@sha256:a7cee7c8178ff9b5297cb109e6240f5072cdaaafd775ce6b586c3c704b06458e
     container_name: redis
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: always
     ports:
       - 6379:6379
 
   worker:
-    pull_policy: never
-    image: backend-base:latest
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    image: stangirard/quivr-backend-prebuilt:latest
+    pull_policy: if_not_present
     env_file:
       - .env
+    build:
+      context: backend
+      dockerfile: Dockerfile
     container_name: worker
-    # volumes:
-    #   - ./backend/:/code/
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: celery -A celery_worker worker -l info
     restart: always
     depends_on:
       - redis
+      - db
 
   beat:
-    image: backend-base:latest
-    pull_policy: never
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    image: stangirard/quivr-backend-prebuilt:latest
+    pull_policy: if_not_present
     env_file:
       - .env
-
+    build:
+      context: backend
+      dockerfile: Dockerfile
     container_name: beat
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: celery -A celery_worker beat -l info
     restart: always
     depends_on:
       - redis
+      - db
 
   flower:
-    image: backend-base:latest
-    pull_policy: never
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    image: stangirard/quivr-backend-prebuilt:latest
+    pull_policy: if_not_present
     env_file:
       - .env
-
     container_name: flower
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: celery -A celery_worker flower -l info --port=5555
     restart: always
     depends_on:
@@ -89,3 +110,16 @@ services:
       - beat
     ports:
       - 5555:5555
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: your_username
+      POSTGRES_PASSWORD: your_password
+      POSTGRES_DB: your_database
+    ports:
+      - "5432:5432"
+
+networks:
+  quivr-network:
+    driver: bridge
